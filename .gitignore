@@ -4,6 +4,8 @@
 *.tfstate.*
 *.tfplan
 *.tfplan.json
+tfplan
+tfplan.json
 plan.json
 apply-error.txt
 assignments.local.json

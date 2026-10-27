@@ -269,6 +269,7 @@ def _owner_hint(assignment: dict | None) -> str:
 def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None = None) -> dict[str, Any]:
     changes = parse_plan(plan)
     index = _assignment_index(assignments) if assignments is not None else {}
+    advisories = advisory_signals(changes)
     policy_findings: list[dict[str, Any]] = []
     other_findings: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -298,11 +299,24 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
                 assignment_props = assignment.get("properties", {}) if assignment else {}
                 observations = _extract_observation(info)
                 fix, risk = _known_advice(observations)
+                linked_address = _match_plan(resource_id, changes) or log_address
+                plan_observations = [
+                    {"field": a["field"], "observed_value": a["observed_value"], "signal": a["signal"]}
+                    for a in advisories if a["resource"] == linked_address
+                ]
+                if plan_observations and not observations:
+                    risk = ("The Terraform plan independently proposes: " +
+                            ", ".join(x["signal"] for x in plan_observations) +
+                            ". This could expand exposure or weaken controls if deployed; it does NOT establish which predicate Azure Policy evaluated. " + risk)
+                    relevant = next(a for a in advisories if a["resource"] == linked_address)
+                    fix = ("Terraform preflight suggests: " + relevant["suggested_action"] +
+                           " Confirm the actual denial rule with the policy owner before treating this as the fix.")
                 policy_findings.append({
                     "status": "CONFIRMED_AZURE_POLICY_DENIAL",
                     "code": code,
                     "resource_id": resource_id,
-                    "terraform_address": _match_plan(resource_id, changes) or log_address,
+                    "terraform_address": linked_address,
+                    "plan_observations_not_azure_confirmed": plan_observations,
                     "assignment_id": assignment_id,
                     "assignment_name": _safe_label(assignment_props.get("displayName")) if assignment else None,
                     "assignment_scope": _safe_id(assignment_props.get("scope")) if assignment else None,
@@ -340,7 +354,7 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
             "changes": change_summary,
             "confirmed_policy_denials": policy_findings,
             "other_azure_errors": other_findings,
-            "terraform_advisories": advisory_signals(changes),
+            "terraform_advisories": advisories,
             "evidence_gaps": (["No Azure error/deployment evidence supplied: possible Terraform conflicts are not confirmed policy denials."] if azure_errors is None else
                               ["No policy-denial metadata found; this is not proof that applicable Azure Policies allow deployment."] if not policy_findings else []) +
                              (["No assignment inventory supplied: cannot resolve central policy names, ownership or scope details."] if policy_findings and assignments is None else []),

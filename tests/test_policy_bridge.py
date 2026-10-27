@@ -36,6 +36,13 @@ class PolicyBridgeTests(unittest.TestCase):
         r = triage(self.plan, self.errors)
         self.assertEqual(r["confirmed_policy_denials"][0]["terraform_address"], "azurerm_storage_account.prototype")
 
+    def test_confirmed_policy_enriched_with_unconfirmed_plan_evidence(self):
+        r = triage(self.plan, parse_terraform_log((ROOT / "terraform-apply.sample.txt").read_text()))
+        blocker = r["confirmed_policy_denials"][0]
+        self.assertEqual(blocker["plan_observations_not_azure_confirmed"][0]["observed_value"], True)
+        self.assertIn("does NOT establish", blocker["exception_risk"])
+        self.assertIn("not verified as the denied", markdown(r))
+
     def test_assignment_ownership_and_noncompliance(self):
         r = triage(self.plan, self.errors, self.assignments)["confirmed_policy_denials"][0]
         self.assertEqual(r["governance_owner"], "Central Azure Platform")

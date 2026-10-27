@@ -24,6 +24,11 @@ def markdown(report: dict[str, Any]) -> str:
                   f"- **Central team:** {blocker['central_decision']}",
                   f"- Contact / ownership: {blocker['governance_owner']}",
                   f"- **Risk if bypassed:** {blocker['exception_risk']}", ""]
+        if blocker.get("plan_observations_not_azure_confirmed"):
+            lines.append("Terraform plan observations (**not verified as the denied policy predicate**):")
+            for e in blocker["plan_observations_not_azure_confirmed"]:
+                lines.append(f"- `{e['field']}` = `{e['observed_value']}` ({e['signal']})")
+            lines.append("")
         if blocker['evaluation_evidence']:
             lines.append("Azure evaluation evidence (allowlisted fields only):")
             for e in blocker['evaluation_evidence']:

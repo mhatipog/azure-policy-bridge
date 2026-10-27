@@ -44,6 +44,7 @@ Also accepts structured ARM deployment error JSON in `--errors`. The examples ar
 ## Real deployment: collect evidence safely
 
 ```bash
+umask 077  # private output files, especially important for JSON plans
 terraform plan -out=tfplan
 terraform show -json tfplan > tfplan.json
 
