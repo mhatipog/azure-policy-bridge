@@ -1,6 +1,0 @@
-╷
-│ Error: creating Storage Account (Subscription: "00000000-0000-0000-0000-000000000001" Resource Group: "rg-prototype" Name: "stprototype2026"): unexpected status 403 (403 Forbidden) with error: RequestDisallowedByPolicy: Resource 'stprototype2026' was disallowed by policy. Policy identifiers: '[{"policyAssignment":{"name":"Deny public data services","id":"/providers/Microsoft.Management/managementGroups/corp-root/providers/Microsoft.Authorization/policyAssignments/deny-public-storage"},"policyDefinition":{"name":"Storage public access","id":"/providers/Microsoft.Authorization/policyDefinitions/require-storage-private"}}]'.
-│
-│   with azurerm_storage_account.prototype,
-│   on main.tf line 21, in resource "azurerm_storage_account" "prototype":
-╵

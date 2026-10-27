@@ -1,109 +1,54 @@
 # Azure Policy Bridge
 
-**Make Azure policy changes reviewable before they surprise workloads.**
+**Which Azure governance changes deserve your attention?**
 
-A small, read-only Python CLI with two focused workflows:
+A small, read-only CLI to compare Azure Policy inventories over time. It highlights changed rules, initiatives, assignments and version selections, then optionally points to **potentially related Terraform resources**. Built for periodic platform reviews and policy-as-code workflows; not another policy evaluator or compliance scanner.
 
-- **`changes`** compares two Azure Policy snapshots (definitions, initiatives, assignments) and flags rule, version, membership, scope, selector and parameter changes. With a Terraform plan and an explicit resource-type map, it highlights potential intersections with planned infrastructure. It **does not emulate Azure Policy**.
-- **Deployment diagnosis (original workflow)** extracts supported policy and authorization evidence from Terraform apply logs and ARM/Bicep errors, with optional plan/policy context.
+## Try it in 30 seconds
 
-The new change-review mode complements Azure's official versioning and tools such as AzAdvertizer, AzGovViz and EPAC. It does not claim to detect all effective assignments, infer that older policies are unsafe, or grant policy exceptions. No Azure credentials are required for offline comparisons.
-
-## Policy change review (new)
+Python 3.10+, no runtime dependencies beyond the standard library.
 
 ```bash
-python -m pip install -e .
-
-az-policy-bridge changes \
+pip install -e .
+az-policy-bridge \
   --before examples/change-review/before.json \
-  --after examples/change-review/after-hypothetical.json \
-  --plan examples/change-review/terraform-plan.minimal.json \
-  --type-map examples/change-review/type-map.json
+  --after examples/change-review/after-hypothetical.json
 ```
 
-The included example demonstrates a **hypothetical** stricter minimum-TLS rule, how an assignment could pick up a minor policy revision, and which resources deserve attention. The sample is not a claim about an actual Microsoft policy release.
-
-For your own authorized Azure inventory, see [capture, limitations and practical review workflow](docs/change-review.md). Snapshots and Terraform plans may contain confidential information: keep them in a private environment. Reports remain advisory and require human verification.
-
-## Deployment error diagnosis (original)
-
-An offline, read-only parser for Terraform apply output and ARM/Bicep errors. No administrator access or deployment rights are needed for the local analysis.
-
-## Quick start: start with the error
-
-Requires Python 3.10+; no runtime packages beyond the standard library.
+Get machine-readable findings or enrich the report with **resource-type hints** from a Terraform plan:
 
 ```bash
-python -m pip install -e .
-
-# Terraform / AzureRM apply output (text)
-az-policy-bridge --errors examples/policy-bridge/terraform-apply.sample.txt
-
-# Structured ARM / Bicep deployment failure (JSON)
-az-policy-bridge --errors examples/policy-bridge/azure-denial.json
-
-# Paste a short diagnostic from stdin; Ctrl-D to finish on Unix
-az-policy-bridge --errors -
+az-policy-bridge --before before.json --after after.json \
+  --plan tfplan.json --type-map type-map.json \
+  --format json --output review.json
 ```
 
-The output answers:
+The previous `az-policy-bridge changes` syntax also works. Output is advisory: **a matching resource type is not evidence that a policy applies**. Missing inventory, scope inheritance, exclusions, versions, exemptions and Azure evaluation details must still be checked. The example change is hypothetical, not an actual Microsoft policy update.
 
-- **What is confirmed?** A denied Azure Policy, a separate authorization/provider/quota error, or insufficient diagnostic evidence.
-- **What can be identified?** Policy assignment/definition IDs, initiative reference, optional resource ID, Terraform resource address, and allowlisted policy evaluation values.
-- **What's the next step?** Inspect the assigned policy and its parameters, adapt the deployment where supported, or send a narrowly scoped question to the relevant policy owner.
-- **What is uncertain?** A denial code alone doesn't reveal the exact violated condition; an offline plan cannot prove what Azure will accept.
-
-## Add more context when you have it
+## Use with an authorized Azure subscription
 
 ```bash
-# Terraform plan JSON can contain plaintext secrets; keep it local.
-terraform plan -out=tfplan
-terraform show -json tfplan > tfplan.json
-
-az-policy-bridge tfplan.json \
-  --errors examples/policy-bridge/terraform-apply.sample.txt \
-  --assignments examples/policy-bridge/assignments.json \
-  --format json --output diagnosis.json --fail-on confirmed
-
-# Limited advisory preflight using an explicit assignment and definition export.
-az-policy-bridge tfplan.json \
-  --assignments examples/policy-bridge/assignments.json \
-  --definitions examples/policy-bridge/definitions.json
+bash scripts/capture-policy-snapshot.sh before.json
+# Run again after policies or assignments change:
+bash scripts/capture-policy-snapshot.sh after.json
+az-policy-bridge --before before.json --after after.json --output review.md
 ```
 
-The code distinguishes **confirmed Azure errors**, **observations from the plan**, and **possible static policy matches**. These evidence levels are never interchangeable. In particular, unknown policy aliases, exemptions, selectors, effective scope or provider request payloads are **not** assumed compliant.
+The helper uses your Azure CLI login to read definitions, initiatives and assignments for the selected subscription. It doesn't modify cloud resources. Confirm inherited scope, privileges and inventory completeness before drawing conclusions. [Detailed workflow and limitations](docs/change-review.md).
 
-### How the diagnosis works
+## What you get
 
-| Evidence available | Interpretation | Next action |
-|---|---|---|
-| Only an AzureRM or ARM/Bicep failure | Extract confirmed error codes and policy IDs when provided | Resolve the identified rule or investigate missing evaluation detail |
-| Additional Terraform plan | Correlate resources; flag selected configuration settings separately | Check if an allowed configuration resolves the conflict |
-| Policy assignment snapshot | Add the applicable assignment's supplied name/scope and available contact metadata | Confirm parameters, exemptions, inherited scope and required controls |
-| Policy definitions plus a plan | Limited offline candidate matching of known, simple `deny` rules | Verify candidates with Azure; a non-match is not approval |
-| Authorization, quota or registration error | Distinguish from Azure Policy | Investigate the appropriate permission or service limitation |
+- **Change summaries:** rule logic, parameter defaults, initiative members, assignment settings and version selectors.
+- **Review prioritization:** notable changes separated from routine version metadata, with related assignment IDs where present in the supplied inventory.
+- **Optional Terraform relevance:** mapped Azure resource types and matching Terraform resource addresses. No parsing of Terraform expressions or data values.
+- **Explicit unknowns:** incomplete inventories and uncertain version adoption are stated rather than silently classified as compliant.
 
-### Automation
+The CLI runs offline. **Snapshots and `terraform show -json` plans can contain confidential details or secrets**; keep them on trusted machines and don't commit live tenant exports. Reports may contain policy IDs and Terraform addresses. Output files are created with restricted permissions and are never overwritten.
 
-```bash
-az-policy-bridge --errors azure-error.json \
-  --format json --output report.json --fail-on confirmed
-```
+## Scope and ecosystem
 
-Exit code **0** means reporting succeeded without the selected gate condition; **2** means a confirmed policy denial (or an advisory candidate if `--fail-on candidate`); **3** is an input or report error. **Exit 0 never certifies deployment success or policy compliance.** Reports are created with mode `0600` and existing files are not overwritten. The tool does not send data to any endpoint.
+Azure Policy, [AzAdvertizer](https://www.azadvertizer.net/), [AzGovViz](https://github.com/JulianHayward/Azure-MG-Sub-Governance-Reporting) and [EPAC](https://azure.github.io/enterprise-azure-policy-as-code/) already provide evaluation, change history, estate inventory and policy lifecycle management. This tool focuses narrowly on **comparing snapshots and creating a reviewable change summary**. It cannot assess whether a policy is obsolete or recommend granting exemptions.
 
-## Data and trust boundaries
+For contributions, prefer real-world *sanitized* snapshot pairs and verified interpretation edge cases. Run the focused smoke tests with `python -m unittest discover -s tests -v`.
 
-**Terraform plan JSON and error logs may contain credentials, connection strings, resource names, account IDs or confidential policy identifiers.** Run locally or on a trusted runner, keep input files private, and review the diagnosis before distributing it. The parser never reproduces arbitrary error messages or Terraform `before`/`after` objects; it only retains a narrow set of diagnostic fields. Resource addresses, Azure IDs and policy metadata are still potentially confidential.
-
-The tool does **not** recreate Azure Policy evaluation, suggest automatic exemptions, decide residual risk, change access controls, or guarantee a Terraform/API provider will send the same request as another deployment interface. Read [workflow and limitations](docs/workflow.md).
-
-## How to contribute
-
-Useful contributions include **sanitized, reproducible AzureRM or ARM/Bicep errors** with independently verified explanations; tests for new diagnostic shapes; and documentation of accepted deployment patterns. Keep tenant identifiers, real policy names, tokens and full plans out of public issues. The fixtures in this project are synthetic.
-
-Run tests: `PYTHONPATH=src python -m unittest discover -s tests -v`.
-
-**References:** [Azure Policy denial troubleshooting](https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-policy-requestdisallowedbypolicy) · [Azure Policy scope and exemptions](https://learn.microsoft.com/en-us/azure/governance/policy/concepts/scope) · [AzureRM preflight validation](https://registry.terraform.io/providers/hashicorp/Azurerm/latest/docs/guides/preflight_validation) · [Terraform show sensitive data](https://developer.hashicorp.com/terraform/cli/commands/show).
-
-MIT licensed. Not affiliated with Microsoft or HashiCorp.
+MIT license. Not affiliated with Microsoft or HashiCorp.

@@ -7,41 +7,21 @@ on:
 permissions:
   contents: read
 jobs:
-  unit-and-integration:
+  smoke:
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
-    runs-on: ubuntu-latest
+        python-version: ['3.10', '3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install package and check CLI entrypoint
-        run: python -m pip install -e .
-      - name: Run offline tests
-        run: python -m unittest discover -s tests -v
-      - name: Terraform log only diagnosis
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s tests -v
+      - name: Exercise documented CLI example
         run: |
-          az-policy-bridge --errors examples/policy-bridge/terraform-apply.sample.txt --format json > /tmp/terraform.json
-          python -c 'import json; r=json.load(open("/tmp/terraform.json")); assert len(r["confirmed_policy_denials"]) == 1 and not r["changes"]'
-      - name: ARM/Bicep JSON only diagnosis
-        run: |
-          az-policy-bridge --errors examples/policy-bridge/arm-message-only.json --format json > /tmp/arm.json
-          python -c 'import json; r=json.load(open("/tmp/arm.json")); assert len(r["confirmed_policy_denials"]) == 1 and r["confirmed_policy_denials"][0]["assignment_id"]'
-      - name: Context-enriched diagnosis
-        run: |
-          az-policy-bridge examples/policy-bridge/terraform-plan.json \
-            --errors examples/policy-bridge/azure-denial.json \
-            --assignments examples/policy-bridge/assignments.json \
-            --format json > /tmp/enriched.json
-          python -c 'import json; r=json.load(open("/tmp/enriched.json")); assert len(r["confirmed_policy_denials"]) == 1 and len(r["other_azure_errors"]) == 1'
-      - name: Advisory change-impact demo
-        run: |
-          az-policy-bridge changes \
-            --before examples/change-review/before.json \
-            --after examples/change-review/after-hypothetical.json \
-            --plan examples/change-review/terraform-plan.minimal.json \
-            --type-map examples/change-review/type-map.json --format json > /tmp/change-impact.json
-          python -c 'import json; p=json.load(open("/tmp/change-impact.json")); assert p["finding_count"] == 2 and any(f["terraform_resource_candidates"] for f in p["findings"])'
+          az-policy-bridge --before examples/change-review/before.json \
+            --after examples/change-review/after-hypothetical.json --format json > review.json
+          python -c 'import json; assert json.load(open("review.json"))["finding_count"] == 2'

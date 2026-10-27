@@ -174,8 +174,10 @@ def analyse(before: dict[str, Any], after: dict[str, Any], plan: dict[str, Any] 
         type_map = {}
     if not isinstance(type_map, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in type_map.items()):
         raise ValueError("Type map must be an object of Terraform types to ARM resource types")
-    old = {s: _index(_items(before, s), s) for s in _SECTIONS}
-    new = {s: _index(_items(after, s), s) for s in _SECTIONS}
+    supplied = {section: (any(k in before for k in _KEYS[section]),
+                          any(k in after for k in _KEYS[section])) for section in _SECTIONS}
+    old = {s: _index(_items(before, s), s) if supplied[s][0] else {} for s in _SECTIONS}
+    new = {s: _index(_items(after, s), s) if supplied[s][1] else {} for s in _SECTIONS}
     resources = _plan_resources(plan)
     findings: list[dict[str, Any]] = []
     enriched_initiatives = {**old["initiatives"], **new["initiatives"]}
@@ -194,7 +196,12 @@ def analyse(before: dict[str, Any], after: dict[str, Any], plan: dict[str, Any] 
         target = str(_value(assignment, "policyDefinitionId", "")).lower().rstrip("/")
         target_index[target].append(assignment)
     gaps = []
-    if not old["assignments"] and not new["assignments"]:
+    for section, (had_before, has_after) in supplied.items():
+        if not had_before or not has_after:
+            gaps.append(f"{section} missing from {'before' if not had_before else 'after'} snapshot"
+                        + (" and after snapshot" if not had_before and not has_after else "")
+                        + "; comparison skipped for this section.")
+    if not any(supplied["assignments"]):
         gaps.append("No assignment inventory: workload applicability cannot be established.")
     if plan is not None and not type_map:
         gaps.append("Terraform type mapping not supplied: workload overlap cannot be inferred safely.")
@@ -235,6 +242,8 @@ def analyse(before: dict[str, Any], after: dict[str, Any], plan: dict[str, Any] 
         })
 
     for section in _SECTIONS:
+        if not all(supplied[section]):
+            continue
         for id_ in sorted(set(old[section]) | set(new[section])):
             was = old[section].get(id_)
             now = new[section].get(id_)

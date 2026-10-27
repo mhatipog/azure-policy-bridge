@@ -4,13 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azure-policy-bridge"
-version = "0.3.0"
-description = "Review Azure Policy changes and deployment blockers with read-only evidence"
+version = "0.4.0"
+description = "Review Azure Policy changes and find potentially affected Terraform resources"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "Community contributors"}]
-keywords = ["azure-policy", "terraform", "policy-denial", "azure-governance", "azure-policy-diagnostics", "devops"]
+keywords = ["azure-policy", "azure-governance", "policy-as-code", "terraform", "change-impact", "cloud-governance"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -18,11 +17,13 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 
+[project.urls]
+Homepage = "https://github.com/mhatipog/azure-policy-bridge"
+Repository = "https://github.com/mhatipog/azure-policy-bridge"
+Issues = "https://github.com/mhatipog/azure-policy-bridge/issues"
+
 [project.scripts]
 az-policy-bridge = "az_policy_bridge.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
