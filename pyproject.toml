@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azure-policy-bridge"
-version = "0.1.0"
-description = "Explain Terraform deployments blocked by centrally governed Azure Policy; evidence-first CCoE handoff"
+version = "0.2.0"
+description = "Diagnose Azure deployment policy denials and identify actionable next steps"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Community contributors"}]
-keywords = ["azure-policy", "terraform", "policy-denial", "azure-governance", "ccoe", "devops"]
+keywords = ["azure-policy", "terraform", "policy-denial", "azure-governance", "azure-policy-diagnostics", "devops"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
