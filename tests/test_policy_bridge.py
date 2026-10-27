@@ -1,4 +1,4 @@
-"""Integration and adversarial tests for the business/cloud-governance boundary."""
+"""Integration and adversarial tests for the Azure deployment diagnostics."""
 import copy
 import io
 import json
@@ -41,11 +41,11 @@ class PolicyBridgeTests(unittest.TestCase):
         blocker = r["confirmed_policy_denials"][0]
         self.assertEqual(blocker["plan_observations_not_azure_confirmed"][0]["observed_value"], True)
         self.assertIn("does NOT establish", blocker["exception_risk"])
-        self.assertIn("not verified as the denied", markdown(r))
+        self.assertIn("not the confirmed denied predicate", markdown(r))
 
     def test_assignment_ownership_and_noncompliance(self):
         r = triage(self.plan, self.errors, self.assignments)["confirmed_policy_denials"][0]
-        self.assertEqual(r["governance_owner"], "Central Azure Platform")
+        self.assertEqual(r["governance_owner"], "Policy administrator")
         self.assertIn("private network", r["non_compliance_message"].lower())
 
     def test_output_contains_no_plan_secret_or_error_message(self):
@@ -162,7 +162,7 @@ class PolicyBridgeTests(unittest.TestCase):
                            "--assignments", str(ROOT / "assignments.json"),
                            "--output", str(output), "--fail-on", "confirmed"])
             self.assertEqual(rc, 2)
-            self.assertIn("Business developer", output.read_text())
+            self.assertIn("**Developer action:**", output.read_text())
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             self.assertEqual(main([str(ROOT / "terraform-plan.json"), "--output", str(output)]), 3)
 
