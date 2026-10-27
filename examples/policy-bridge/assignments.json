@@ -1,5 +1,5 @@
 [{"id":"/providers/Microsoft.Management/managementGroups/corp-root/providers/Microsoft.Authorization/policyAssignments/deny-public-storage",
   "properties":{"displayName":"Storage endpoints must use restricted network access", "scope":"/providers/Microsoft.Management/managementGroups/corp-root",
   "policyDefinitionId":"/providers/Microsoft.Authorization/policyDefinitions/require-storage-private",
-  "enforcementMode":"Default", "metadata":{"owner":"Central Azure Platform"},
+  "enforcementMode":"Default", "metadata":{"owner":"Policy administrator"},
   "nonComplianceMessages":[{"policyDefinitionReferenceId":"storagePublicAccess", "message":"Use private network architecture for data-plane services."}]}}]
