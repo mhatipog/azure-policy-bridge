@@ -1,18 +1,19 @@
-"""Extract structured identifiers from Terraform's ordinary stderr without publishing logs.
+"""Extract bounded Azure error identifiers from diagnostic text without echoing logs.
 
-Typical AzureRM errors contain `Policy identifiers: '[{"policyAssignment":...}]'`.
-Only bounded JSON arrays after this exact marker are parsed. Other message text is
-never included in results. This is a parser for error evidence, not an evaluator.
+Only a recognized Azure error code and the structured `Policy identifiers` array
+are consumed. Never retain a raw message, URL, query string or arbitrary property.
 """
 from __future__ import annotations
 import json
 import re
 from typing import Any
 
-# There may be multiple `Error:` blocks in a single apply failure.
 ADDRESS = re.compile(r"\bwith\s+([a-zA-Z_][a-zA-Z0-9_.\-\[\]\"']+)\s*,")
 POLICY_MARKER = re.compile(r"Policy identifiers\s*:\s*'?\s*", re.IGNORECASE)
-CODE = re.compile(r"\b(RequestDisallowedByPolicy|ResourceDeniedByPolicy|AuthorizationFailed|LinkedAuthorizationFailed)\b", re.I)
+CODE = re.compile(
+    r"\b(RequestDisallowedByPolicy|ResourceDeniedByPolicy|PolicyViolation|"
+    r"AuthorizationFailed|LinkedAuthorizationFailed|MissingSubscriptionRegistration|"
+    r"SubscriptionNotRegistered|QuotaExceeded|OperationNotAllowed)\b", re.I)
 ID_RE = re.compile(r"^/[\w\-.{}]+(?:/[\w\-.{}]+)+$")
 
 
@@ -20,51 +21,69 @@ def _id(value: Any) -> str | None:
     return value if isinstance(value, str) and len(value) <= 1024 and ID_RE.fullmatch(value) else None
 
 
-def parse_terraform_log(text: str) -> dict:
+def extract_policy_identifiers(text: Any) -> list[dict[str, Any]]:
+    """Extract exact Azure policy IDs from known-format messages, discarding text.
+
+    Parses only JSON arrays immediately after `Policy identifiers:`. The Azure
+    error may contain arbitrary sensitive text elsewhere, which is never emitted.
+    """
+    if not isinstance(text, str) or len(text) > 1_000_000:
+        return []
+    found: list[dict[str, Any]] = []
+    for marker in list(POLICY_MARKER.finditer(text))[:30]:
+        remainder = text[marker.end():].lstrip()
+        if not remainder.startswith("["):
+            continue
+        try:
+            data, _ = json.JSONDecoder().raw_decode(remainder)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, list):
+            continue
+        for policy in data[:60]:
+            if not isinstance(policy, dict):
+                continue
+            assignment = policy.get("policyAssignment")
+            definition = policy.get("policyDefinition")
+            initiative = policy.get("policySetDefinition")
+            aid = _id(assignment.get("id")) if isinstance(assignment, dict) else None
+            did = _id(definition.get("id")) if isinstance(definition, dict) else None
+            sid = _id(initiative.get("id")) if isinstance(initiative, dict) else None
+            ref = policy.get("policyDefinitionReferenceId")
+            safe_ref = ref if isinstance(ref, str) and re.fullmatch(r"[\w\-.]{1,128}", ref) else None
+            if aid or did:
+                found.append({"policyAssignmentId": aid, "policyDefinitionId": did,
+                              "policySetDefinitionId": sid, "policyDefinitionReferenceId": safe_ref})
+    # Deduplicate the structured identifiers, preserving order.
+    unique = []
+    seen = set()
+    for item in found:
+        key = tuple(item.values())
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def parse_terraform_log(text: str) -> dict[str, Any]:
     if len(text) > 5_000_000:
-        raise ValueError("Log exceeds 5MB; extract the relevant failure blocks locally")
+        raise ValueError("Log exceeds 5MB; extract relevant failures locally")
+    # Terraform renders either `Error:` blocks or Unicode frame blocks.
     blocks = re.split(r"(?=^\s*(?:Error:|╷))", text, flags=re.M)
-    details = []
+    details: list[dict[str, Any]] = []
     for block in blocks:
         match = CODE.search(block)
         if not match:
             continue
         code = match.group(1)
-        address_matches = ADDRESS.findall(block)
-        address = address_matches[-1] if len(set(address_matches)) == 1 else None
-        if code.lower() == "requestdisallowedbypolicy" or code.lower() == "resourcedeniedbypolicy":
-            markers = list(POLICY_MARKER.finditer(block))
-            extracted = False
-            for marker in markers[:30]:
-                remainder = block[marker.end():].lstrip()
-                if not remainder.startswith("["):
-                    continue
-                try:
-                    data, _ = json.JSONDecoder().raw_decode(remainder)
-                except (ValueError, TypeError):
-                    continue
-                if not isinstance(data, list):
-                    continue
-                for policy in data[:60]:
-                    if not isinstance(policy, dict):
-                        continue
-                    assignment = policy.get("policyAssignment", {})
-                    definition = policy.get("policyDefinition", {})
-                    initiative = policy.get("policySetDefinition", {})
-                    if not isinstance(assignment, dict) or not isinstance(definition, dict):
-                        continue
-                    info = {"policyAssignmentId": _id(assignment.get("id")),
-                            "policyDefinitionId": _id(definition.get("id")),
-                            "policySetDefinitionId": _id(initiative.get("id")) if isinstance(initiative, dict) else None,
-                            "policyDefinitionReferenceId": policy.get("policyDefinitionReferenceId")}
-                    if not info["policyAssignmentId"] and not info["policyDefinitionId"]:
-                        continue
-                    details.append({"code": code, "terraformAddress": address,
-                                    "additionalInfo": [{"type": "PolicyViolation", "info": info}]})
-                    extracted = True
-            if not extracted:
-                # Confirm denial code from AzureRM text, not assignment identity.
-                details.append({"code": code, "terraformAddress": address})
+        addresses = ADDRESS.findall(block)
+        address = addresses[0] if len(set(addresses)) == 1 and addresses else None
+        infos = extract_policy_identifiers(block) if code.lower() in {
+            "requestdisallowedbypolicy", "resourcedeniedbypolicy", "policyviolation"} else []
+        if infos:
+            for info in infos:
+                details.append({"code": code, "terraformAddress": address,
+                                "additionalInfo": [{"type": "PolicyViolation", "info": info}]})
         else:
             details.append({"code": code, "terraformAddress": address})
-    return {"error": {"code": "TerraformApplyFailed", "details": details}}
+    return {"error": {"code": "DeploymentDiagnostics", "details": details}}
