@@ -1,0 +1,22 @@
+# Terraform state/plans/logs are sensitive: never commit exported tenant or plan data.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.json
+plan.json
+apply-error.txt
+assignments.local.json
+definitions.local.json
+*.secrets.json
+*.log
+review.md
+governance-review.md
+triage.json
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/

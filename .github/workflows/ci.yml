@@ -1,0 +1,38 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit-and-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit and real-format error parsing tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+      - name: Structured Azure error CLI smoke check
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m az_policy_bridge examples/policy-bridge/terraform-plan.json \
+            --errors examples/policy-bridge/azure-denial.json --format json --fail-on none > /tmp/report.json
+          python -c 'import json; x=json.load(open("/tmp/report.json")); assert len(x["confirmed_policy_denials"]) == 1'
+      - name: Terraform stderr CLI smoke check
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m az_policy_bridge examples/policy-bridge/terraform-plan.json \
+            --errors examples/policy-bridge/terraform-apply.sample.txt --format json --fail-on none > /tmp/stderr-report.json
+          python -c 'import json; x=json.load(open("/tmp/stderr-report.json")); assert len(x["confirmed_policy_denials"]) == 1'

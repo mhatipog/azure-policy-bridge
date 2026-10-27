@@ -1,0 +1,8 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "resource_changes": [
+    {"address":"azurerm_storage_account.prototype", "mode":"managed", "type":"azurerm_storage_account", "name":"prototype", "change":{"actions":["create"], "before":null, "after":{"name":"stprototype2026", "location":"westeurope", "public_network_access_enabled":true, "shared_access_key_enabled":false, "account_key":"NEVER_PUBLISH_THIS_CREDENTIAL"}, "after_unknown":{"primary_blob_endpoint":true}}},
+    {"address":"azurerm_key_vault.prototype", "mode":"managed", "type":"azurerm_key_vault", "name":"prototype", "change":{"actions":["create"], "before":null, "after":{"name":"kv-prototype-2026", "location":"westeurope", "public_network_access_enabled":false, "enable_rbac_authorization":true, "secrets":{"client_password":"DO_NOT_LEAK"}}, "after_unknown":{"id":true}}}
+  ]
+}

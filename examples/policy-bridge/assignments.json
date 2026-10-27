@@ -1,0 +1,5 @@
+[{"id":"/providers/Microsoft.Management/managementGroups/corp-root/providers/Microsoft.Authorization/policyAssignments/deny-public-storage",
+  "properties":{"displayName":"Business resources must not expose public Storage endpoints", "scope":"/providers/Microsoft.Management/managementGroups/corp-root",
+  "policyDefinitionId":"/providers/Microsoft.Authorization/policyDefinitions/require-storage-private",
+  "enforcementMode":"Default", "metadata":{"owner":"Central Azure Platform"},
+  "nonComplianceMessages":[{"policyDefinitionReferenceId":"storagePublicAccess", "message":"Use private network architecture for data-plane services."}]}}]

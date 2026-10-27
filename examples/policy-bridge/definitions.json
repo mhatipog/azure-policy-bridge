@@ -1,0 +1,7 @@
+[{"id":"/providers/Microsoft.Authorization/policyDefinitions/require-storage-private",
+  "properties":{"displayName":"Require private Storage endpoints", "policyType":"Custom",
+  "policyRule":{"if":{"allOf":[
+     {"field":"type", "equals":"Microsoft.Storage/storageAccounts"},
+     {"field":"Microsoft.Storage/storageAccounts/publicNetworkAccess", "equals":"Enabled"}
+  ]}, "then":{"effect":"deny"}}}}
+]
