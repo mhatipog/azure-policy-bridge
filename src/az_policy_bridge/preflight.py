@@ -7,7 +7,7 @@ rule only means 'review this candidate'; a local non-match never grants permissi
 from __future__ import annotations
 import re
 from typing import Any
-from .core import Change, _assignment_index
+from .core import Change, _assignment_index, _safe_label, _safe_id
 
 UNKNOWN = object()
 PARAM = re.compile(r"^\[parameters\('([a-zA-Z0-9_]+)'\)\]$", re.I)
@@ -191,10 +191,10 @@ def find_candidates(changes: list[Change], assignments: Any, definitions: Any) -
                         "assignment_id": assignment_id,
                         "policy_definition_id": rule_id,
                         "initiative_reference_id": ref_id,
-                        "assignment_name": props.get("displayName") if isinstance(props.get("displayName"), str) else None,
-                        "scope": scope,
+                        "assignment_name": _safe_label(props.get("displayName")),
+                        "scope": _safe_id(scope),
                         "confidence": "LIMITED_STATIC_MATCH",
-                        "recommended_action": "Review the relevant rule with central cloud governance, adapt Terraform to the supported pattern, and verify through authorized Azure tooling.",
+                        "recommended_action": "Review the relevant rule with policy administrators, adapt Terraform to the supported pattern, and verify through authorized Azure tooling.",
                     })
                 elif result is UNKNOWN:
                     gaps.add("Some aliases, parameters or planned property values cannot be evaluated safely offline.")
