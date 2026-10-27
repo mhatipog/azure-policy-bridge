@@ -1,0 +1,4 @@
+{
+  "azurerm_storage_account": "Microsoft.Storage/storageAccounts",
+  "azurerm_key_vault": "Microsoft.KeyVault/vaults"
+}

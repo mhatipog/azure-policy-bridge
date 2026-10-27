@@ -1,10 +1,33 @@
 # Azure Policy Bridge
 
-**Understand why an Azure deployment was rejected, and what to try next.**
+**Make Azure policy changes reviewable before they surprise workloads.**
 
-An offline, read-only Python CLI that extracts evidence from Azure deployment failures and produces a concise, reviewable diagnosis. It works with **Terraform apply output** and **ARM/Bicep deployment errors**. A Terraform plan and policy snapshots are optional context—not prerequisites for getting an answer.
+A small, read-only Python CLI with two focused workflows:
 
-No Azure credentials, dashboard, agent, tenant-wide permissions, or cloud resources are required for local analysis. The tool never edits policies, grants exemptions, or deploys anything.
+- **`changes`** compares two Azure Policy snapshots (definitions, initiatives, assignments) and flags rule, version, membership, scope, selector and parameter changes. With a Terraform plan and an explicit resource-type map, it highlights potential intersections with planned infrastructure. It **does not emulate Azure Policy**.
+- **Deployment diagnosis (original workflow)** extracts supported policy and authorization evidence from Terraform apply logs and ARM/Bicep errors, with optional plan/policy context.
+
+The new change-review mode complements Azure's official versioning and tools such as AzAdvertizer, AzGovViz and EPAC. It does not claim to detect all effective assignments, infer that older policies are unsafe, or grant policy exceptions. No Azure credentials are required for offline comparisons.
+
+## Policy change review (new)
+
+```bash
+python -m pip install -e .
+
+az-policy-bridge changes \
+  --before examples/change-review/before.json \
+  --after examples/change-review/after-hypothetical.json \
+  --plan examples/change-review/terraform-plan.minimal.json \
+  --type-map examples/change-review/type-map.json
+```
+
+The included example demonstrates a **hypothetical** stricter minimum-TLS rule, how an assignment could pick up a minor policy revision, and which resources deserve attention. The sample is not a claim about an actual Microsoft policy release.
+
+For your own authorized Azure inventory, see [capture, limitations and practical review workflow](docs/change-review.md). Snapshots and Terraform plans may contain confidential information: keep them in a private environment. Reports remain advisory and require human verification.
+
+## Deployment error diagnosis (original)
+
+An offline, read-only parser for Terraform apply output and ARM/Bicep errors. No administrator access or deployment rights are needed for the local analysis.
 
 ## Quick start: start with the error
 

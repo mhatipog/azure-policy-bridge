@@ -37,3 +37,11 @@ jobs:
             --assignments examples/policy-bridge/assignments.json \
             --format json > /tmp/enriched.json
           python -c 'import json; r=json.load(open("/tmp/enriched.json")); assert len(r["confirmed_policy_denials"]) == 1 and len(r["other_azure_errors"]) == 1'
+      - name: Advisory change-impact demo
+        run: |
+          az-policy-bridge changes \
+            --before examples/change-review/before.json \
+            --after examples/change-review/after-hypothetical.json \
+            --plan examples/change-review/terraform-plan.minimal.json \
+            --type-map examples/change-review/type-map.json --format json > /tmp/change-impact.json
+          python -c 'import json; p=json.load(open("/tmp/change-impact.json")); assert p["finding_count"] == 2 and any(f["terraform_resource_candidates"] for f in p["findings"])'

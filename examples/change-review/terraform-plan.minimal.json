@@ -1,0 +1,22 @@
+{
+  "resource_changes": [
+    {
+      "address": "azurerm_storage_account.data",
+      "type": "azurerm_storage_account",
+      "change": {
+        "actions": [
+          "create"
+        ]
+      }
+    },
+    {
+      "address": "azurerm_key_vault.secrets",
+      "type": "azurerm_key_vault",
+      "change": {
+        "actions": [
+          "create"
+        ]
+      }
+    }
+  ]
+}

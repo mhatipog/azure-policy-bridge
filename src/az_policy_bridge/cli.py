@@ -42,6 +42,10 @@ def _write(path: str | None, data: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "changes":
+        return _changes_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="az-policy-bridge",
         description="Explain Azure deployment failures from Terraform logs or ARM/Bicep JSON; optionally enrich with a plan.")
@@ -90,6 +94,30 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError, json.JSONDecodeError, TypeError, UnicodeError) as exc:
         # Do not surface error text: input paths and Azure messages can be sensitive.
         print(f"az-policy-bridge: input/report error ({type(exc).__name__}); check input and permissions", file=sys.stderr)
+        return 3
+
+
+def _changes_main(argv: list[str]) -> int:
+    from .change_impact import analyse, to_markdown
+    parser = argparse.ArgumentParser(prog="az-policy-bridge changes",
+                    description="Compare Azure Policy snapshots and show advisory change impact (read-only).")
+    parser.add_argument("--before", required=True, help="Previous policy inventory JSON")
+    parser.add_argument("--after", required=True, help="Current policy inventory JSON")
+    parser.add_argument("--plan", help="Optional Terraform show -json plan (may contain secrets)")
+    parser.add_argument("--type-map", help="Explicit Terraform-to-ARM type mapping JSON")
+    parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    parser.add_argument("--output", help="Create owner-only new report file, defaults to stdout")
+    args = parser.parse_args(argv)
+    try:
+        before, after = _load(args.before), _load(args.after)
+        plan = _load(args.plan) if args.plan else None
+        types = _load(args.type_map) if args.type_map else None
+        report = analyse(before, after, plan, types)
+        result = json.dumps(report, indent=2, sort_keys=True) + "\n" if args.format == "json" else to_markdown(report)
+        _write(args.output, result)
+        return 0  # Advisory only, cannot prove compliance or block deployment.
+    except (ValueError, OSError, json.JSONDecodeError, TypeError, UnicodeError) as exc:
+        print(f"az-policy-bridge: change-review error ({type(exc).__name__}); check input and permissions", file=sys.stderr)
         return 3
 
 

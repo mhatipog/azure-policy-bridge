@@ -1,0 +1,67 @@
+{
+  "definitions": [
+    {
+      "id": "/providers/Microsoft.Authorization/policyDefinitions/fe83a0eb-a853-422d-aac2-1bffd182c5d0",
+      "properties": {
+        "displayName": "Storage accounts should have the specified minimum TLS version",
+        "version": "1.1.0",
+        "metadata": {
+          "category": "Storage"
+        },
+        "policyRule": {
+          "if": {
+            "allOf": [
+              {
+                "field": "type",
+                "equals": "Microsoft.Storage/storageAccounts"
+              },
+              {
+                "field": "Microsoft.Storage/storageAccounts/minimumTlsVersion",
+                "notEquals": "[parameters('minimumTlsVersion')]"
+              }
+            ]
+          },
+          "then": {
+            "effect": "Deny"
+          }
+        },
+        "parameters": {
+          "effect": {
+            "type": "String",
+            "defaultValue": "Audit",
+            "allowedValues": [
+              "Audit",
+              "Deny",
+              "Disabled"
+            ]
+          },
+          "minimumTlsVersion": {
+            "type": "String",
+            "defaultValue": "TLS1_2",
+            "allowedValues": [
+              "TLS1_0",
+              "TLS1_1",
+              "TLS1_2"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "assignments": [
+    {
+      "id": "/subscriptions/example-subscription/providers/Microsoft.Authorization/policyAssignments/storage-baseline",
+      "properties": {
+        "policyDefinitionId": "/providers/Microsoft.Authorization/policyDefinitions/fe83a0eb-a853-422d-aac2-1bffd182c5d0",
+        "definitionVersion": "1.*.*",
+        "enforcementMode": "Default",
+        "scope": "/subscriptions/example-subscription",
+        "parameters": {
+          "effect": {
+            "value": "Deny"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azure-policy-bridge"
-version = "0.2.0"
-description = "Diagnose Azure deployment policy denials and identify actionable next steps"
+version = "0.3.0"
+description = "Review Azure Policy changes and deployment blockers with read-only evidence"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
