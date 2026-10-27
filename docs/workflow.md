@@ -1,41 +1,35 @@
-# The practical business-team ↔ CCoE workflow
+# A practical Azure deployment troubleshooting workflow
 
-## 1. Developer: prove the proposed change, not a fantasy deployment
+## 1. Diagnose with the smallest useful input
 
-Produce a saved `terraform plan`, capture the `terraform show -json` locally, and note the exact target subscription/resource group. It is important to use the *same provider version and planned variables* as in the deployment that was denied. If the plan contains ephemeral credentials or data, keep the entire input and its execution on an approved enterprise machine.
+Start with the error from an authorized AzureRM apply operation, ARM deployment, Bicep deployment, or Azure CLI operation. Use `az-policy-bridge --errors deployment-error.txt` or `--errors error.json`. No cloud login is required. When diagnostics contain a Policy denial, the assignment and definition IDs are reliable *identifiers*, but they do not necessarily reveal the predicate or permitted remediation.
 
-Run `az-policy-bridge tfplan.json` to see obvious design advisories; these are not organization-policy findings. If permitted, obtain applicable read-only assignment/definition snapshots and run the limited offline `--assignments ... --definitions ...` check before applying. A policy initiative or unsupported Azure alias may not be statically matched: treat that as unknown.
+A failed deployment can surface multiple policy denials and independent authorization/registration failures. Do not treat a generic deployment failure as evidence of a policy violation, and do not interpret an absence of recognized denials as a successful evaluation.
 
-## 2. Developer: take an actual Azure denial to the central team
+## 2. Enrich only when needed
 
-When a permitted `terraform apply` is blocked, preserve only the relevant error segment in a private file. `--errors` understands AzureRM's `RequestDisallowedByPolicy` with `Policy identifiers: '[...]'` and ARM error `details` / `additionalInfo`. It extracts policy assignment ID, definition ID, initiative reference ID if available, exact Terraform address and allowlisted evaluation expressions. It recognizes AuthorizationFailed, provider-registration and quota errors as separate categories.
+For a Terraform-based deployment, use the matching saved plan (`terraform show -json`) only in a private environment. If you have authorized access, obtain the assigned policy and its definitions. A snapshot can be incomplete, stale, or miss inherited management-group assignments. Azure's evaluation remains authoritative.
 
-The report's assignment ID is often enough for CCoE to retrieve the policy text without granting the developer access to a management group. If assignment data is supplied, the report includes available description, scope and owner metadata. If it isn't supplied, **it won't invent a policy explanation**.
+Use the assignment ID to retrieve relevant configuration via a read-only account, or ask the appropriate policy owner to supply the evaluation details. Check effective policy parameters, exclusions, resource selectors, initiative definition references, exemption scope and provider/API-version differences. Different deployment interfaces can send different intermediate payloads.
 
-## 3. Joint resolution: four legitimate paths
+## 3. Choose a resolution route
 
-1. **Change the workload design:** use an approved private endpoint + DNS architecture, mandated identity, allowed region, naming or logging pattern. Usually the best outcome.
-2. **Use an approved platform product:** a central shared module, managed landing-zone component or supported self-service deployment path. The business developer shouldn't own hub firewall, DNS or root policy changes.
-3. **Propose a scoped temporary exception:** central team verifies business need, data classification, compensating controls, exact affected resources, owner, expiry and rollback. An approval is not implied by this report.
-4. **Change a centrally applied policy:** only the central owner can assess organizational blast radius, peer workloads, audit obligations and policy rollout. Not something this CLI automates.
+- **Adapt configuration:** deploy with an allowed region, network model, identity, storage setting or other documented option.
+- **Use a supported deployment path:** use a shared module or service configured for this environment, when available.
+- **Investigate request-level differences:** compare provider version, actual requested properties and evaluation details; do not assume the final declared configuration is what Azure evaluated.
+- **Request policy review:** include relevant assignment/definition IDs, exact resource scope, technical requirement, alternatives attempted and the unresolved question. A deviation—if ever allowed—needs accountable review and controls, not an automatic CLI action.
+- **Investigate a different cause:** identity/RBAC, provider registration and quotas have different owners and fixes.
 
-If the issue is RBAC or missing provider registration rather than Policy, raise the correct request, not an Azure Policy exemption.
+## 4. Trust and privacy rules
 
-## Data-handling notes
+1. Avoid publishing raw Terraform plans, state files, full trace logs or operational tenant identifiers.
+2. Capture the minimum evidence needed and keep generated files in private storage.
+3. Interpret `POSSIBLE_POLICY_CONFLICT_NOT_AZURE_VERIFIED` as an advisory candidate, not a failed Azure evaluation.
+4. Confirm each recommended change with the assigned policy's actual intent, target scope, allowed pattern and service capability.
+5. Never infer that a missing match means that the deployment will succeed.
 
-- Terraform's `show -json` may disclose passwords, IDs and connection strings despite `sensitive_values` markings (see HashiCorp docs). Run in a private environment.
-- The parser retains **only a narrow allowlist** of Boolean/short-value fields from plan JSON, Azure IDs, assignment metadata and selected non-secret evaluation expressions. It intentionally does not reproduce arbitrary Azure `message` strings or full `after` values.
-- Policy assignment descriptions and metadata can themselves be confidential. Review generated reports before forwarding them beyond authorized stakeholders.
-- Do not use a report as assurance that private endpoints resolve or that a workload complies after deployment. Those tests belong to separate operational acceptance processes.
+## Static policy matching limits
 
-## Supported static preflight subset
+The optional local matcher supports a small subset of `deny` conditions involving simple `type`, `location` and selected public network access aliases, `allOf`, `anyOf`, `not`, `equals`, `notEquals`, `in` and `notIn`. It does not reproduce Azure Policy functions, all field aliases, requests, managed-group inheritance, exemptions, resource selectors, or provider-specific payloads.
 
-Simple `deny` policy definitions and initiative references (where both assignment and referenced definitions are present), with `allOf`, `anyOf`, `not`, `equals`, `notEquals`, `in`, `notIn` and selected `type`, `location`, and publicNetworkAccess aliases. Unsupported aliases, dynamic functions, selectors, overrides, enrollment mode, missing properties and ambiguous scoping are **unknown/skipped**. This is **not** faithful policy evaluation and does not prove future success.
-
-### Authoritative background
-
-- Azure Resource Manager [RequestDisallowedByPolicy troubleshooting](https://learn.microsoft.com/azure/azure-resource-manager/troubleshooting/error-policy-requestdisallowedbypolicy)
-- Azure CLI [policy assignment listing and inherited scope](https://learn.microsoft.com/cli/azure/policy/assignment)
-- Azure Policy [assignment enforcement modes](https://learn.microsoft.com/azure/governance/policy/concepts/assignment-structure)
-- HashiCorp [Terraform show JSON sensitive data warning](https://developer.hashicorp.com/terraform/cli/commands/show)
-- HashiCorp [Terraform vs Portal differing policy outcomes](https://support.hashicorp.com/hc/en-us/articles/45170294099731-Azure-policy-blocks-Terraform-apply-while-via-the-Azure-Portal-it-works)
+**References:** [RequestDisallowedByPolicy](https://learn.microsoft.com/en-us/azure/azure-resource-manager/troubleshooting/error-policy-requestdisallowedbypolicy), [Policy assignment scope](https://learn.microsoft.com/en-us/azure/governance/policy/concepts/scope), [Terraform AzureRM preflight](https://registry.terraform.io/providers/hashicorp/Azurerm/latest/docs/guides/preflight_validation), [Terraform plan secrets](https://developer.hashicorp.com/terraform/cli/commands/show).
