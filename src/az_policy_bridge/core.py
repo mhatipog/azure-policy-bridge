@@ -13,16 +13,17 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from .terraform_log import extract_policy_identifiers
 
 POLICY_ERROR_CODES = {"requestdisallowedbypolicy", "policyviolation", "resourcedeniedbypolicy", "policyevaluationfailed"}
 OTHER_BLOCKER_CODES = {
-    "authorizationfailed": ("Identity/RBAC", "Identity administrator or delegated subscription owner"),
-    "linkedauthorizationfailed": ("Cross-scope identity/RBAC", "Identity administrator and owner of referenced scope"),
-    "missingsubscriptionregistration": ("Resource-provider registration", "Subscription platform administrator"),
-    "subscriptionnotregistered": ("Resource-provider registration", "Subscription platform administrator"),
-    "quotaexceeded": ("Quota/capacity", "Subscription platform administrator"),
-    "operationnotallowed": ("Platform restriction (not necessarily Policy)", "Platform operations"),
-    "disallowedbypolicy": ("Azure Policy", "Central cloud governance"),
+    "authorizationfailed": ("Identity/RBAC", "Identity or subscription administrator"),
+    "linkedauthorizationfailed": ("Cross-scope identity/RBAC", "Identity and referenced-scope administrators"),
+    "missingsubscriptionregistration": ("Resource-provider registration", "Subscription administrator"),
+    "subscriptionnotregistered": ("Resource-provider registration", "Subscription administrator"),
+    "quotaexceeded": ("Quota/capacity", "Subscription administrator"),
+    "operationnotallowed": ("Platform restriction (not necessarily Policy)", "Platform administrator"),
+    "disallowedbypolicy": ("Azure Policy", "Policy administrator"),
 }
 # Explicitly limited to widely-recognized common Terraform AzureRM resource mappings.
 TERRAFORM_AZURE = {
@@ -39,13 +40,13 @@ TERRAFORM_AZURE = {
 # Advisory signals, not statements about assignments in the target tenant.
 SIGNALS = {
     "azurerm_storage_account": [
-        ("public_network_access_enabled", True, "Public network access", "high", "Disable public access and use the organization's approved private endpoint/DNS pattern."),
+        ("public_network_access_enabled", True, "Public network access", "high", "Disable public access and confirm the supported private endpoint and DNS configuration."),
         ("shared_access_key_enabled", True, "Shared-key authentication", "high", "Use Entra ID / managed identities if the application and operations support it."),
         ("min_tls_version", "TLS1_0", "Legacy TLS", "high", "Require TLS 1.2+ after checking client compatibility."),
     ],
     "azurerm_key_vault": [
         ("public_network_access_enabled", True, "Public Key Vault endpoint", "high", "Use private connectivity and an approved access pattern."),
-        ("enable_rbac_authorization", False, "Key Vault legacy access policies", "medium", "Discuss a managed-identity / Azure RBAC operating model with the platform team."),
+        ("enable_rbac_authorization", False, "Key Vault legacy access policies", "medium", "Review the supported managed-identity and Azure RBAC access pattern."),
     ],
     "azurerm_mssql_server": [
         ("public_network_access_enabled", True, "Public SQL endpoint", "high", "Disable public access and use approved private connectivity."),
@@ -76,7 +77,7 @@ def _safe_id(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     # Azure resource IDs are identifiers, not secrets, but retain a strict shape.
-    if len(value) > 1024 or not value.startswith("/") or any(c in value for c in "\n\r?&#"):
+    if len(value) > 1024 or not re.fullmatch(r"/[A-Za-z0-9_{}.\-]+(?:/[A-Za-z0-9_{}.\-]+)+", value):
         return None
     return value
 
@@ -86,7 +87,7 @@ def _node_name(resource_id: str | None) -> str | None:
 
 
 def _safe_label(v: Any) -> str | None:
-    if not isinstance(v, str) or len(v) > 256 or any(c in v for c in "\n\r\t=;{}"):
+    if not isinstance(v, str) or len(v) > 256 or not re.fullmatch(r"[\w .(),:/\-]+", v):
         return None
     return v
 
@@ -135,7 +136,7 @@ def advisory_signals(changes: list[Change]) -> list[dict[str, Any]]:
                 continue
             findings.append({"status": "ADVISORY", "resource": change.address, "resource_type": change.azure_type,
                              "signal": label, "field": field, "observed_value": value,
-                             "severity": severity, "owner": "Business/application team (proposed configuration)",
+                             "severity": severity, "owner": "Deployment author (proposed configuration)",
                              "suggested_action": remedy,
                              "evidence": "Terraform plan; not a confirmed Azure Policy conflict"})
     return findings
@@ -180,6 +181,9 @@ def _policy_info(node: dict[str, Any]) -> list[dict[str, Any]]:
         info = element.get("info")
         if isinstance(info, dict) and str(element.get("type", "")).lower() in {"policyviolation", "policyevaluationdetails", "policyviolationinfo"}:
             found.append(info)
+    # Some deployment responses supply identifiers only within a message.
+    if str(node.get("code", "")).lower() in POLICY_ERROR_CODES:
+        found.extend(extract_policy_identifiers(node.get("message")))
     # Some providers put policy metadata at the top of their error payload.
     if any(key in node for key in ("policyAssignmentId", "policyDefinitionId")):
         found.append(node)
@@ -242,7 +246,7 @@ def _match_plan(resource_id: str | None, changes: list[Change]) -> str | None:
 def _known_advice(observations: list[dict]) -> tuple[str, str]:
     aliases = " ".join(x.get("field", "") for x in observations).lower()
     if "publicnetworkaccess" in aliases:
-        return ("Review an approved private-networking design with the central platform team; change the workload Terraform where appropriate.",
+        return ("Check the supported private networking path and change the deployment configuration where appropriate.",
                 "Disabling this guardrail can expose a data-plane endpoint beyond intended private network boundaries; evaluate identity, firewall, DNS, monitoring and data sensitivity.")
     if "allowsharedkeyaccess" in aliases:
         return ("Check whether the workload supports managed identity / Entra ID authentication and update Terraform and client configuration.",
@@ -250,28 +254,31 @@ def _known_advice(observations: list[dict]) -> tuple[str, str]:
     if "location" in aliases:
         return ("Move the workload to an approved Azure region or request an explicit data residency / capability review.",
                 "A location exception may affect residency, resilience, regulatory obligations or centrally supported operations.")
-    return ("Review the policy rule and assignment parameters with the central cloud team; change the IaC to the sanctioned pattern first.",
+    return ("Read the evaluated rule and parameters, then adapt the deployment to the documented allowed configuration when possible.",
             "The risk of an exception cannot be rated from the denial alone; the policy intent, workload sensitivity, scope and compensating controls require review.")
 
 
 def _owner_hint(assignment: dict | None) -> str:
     if not assignment:
-        return "Central cloud policy owner (not identified in supplied evidence)"
+        return "Policy owner not identified in supplied evidence"
     props = assignment.get("properties") or {}
     metadata = props.get("metadata") or {}
     for key in ("owner", "technicalOwner", "contact", "team"):
         value = metadata.get(key)
         if isinstance(value, str) and len(value) <= 120 and "@" not in value:
-            return value
-    return "Central cloud policy owner (contact not in assignment metadata)"
+            safe = _safe_label(value)
+            if safe:
+                return safe
+    return "Policy owner not identified in assignment metadata"
 
 
-def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None = None) -> dict[str, Any]:
-    changes = parse_plan(plan)
+def triage(plan: Any | None = None, azure_errors: Any | None = None, assignments: Any | None = None) -> dict[str, Any]:
+    changes = parse_plan(plan) if plan is not None else []
     index = _assignment_index(assignments) if assignments is not None else {}
     advisories = advisory_signals(changes)
     policy_findings: list[dict[str, Any]] = []
     other_findings: list[dict[str, Any]] = []
+    unclassified: list[dict[str, str]] = []
     seen: set[tuple] = set()
     for node in _nested_errors(azure_errors) if azure_errors is not None else []:
         code = node.get("code", "")
@@ -288,10 +295,12 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
                 initiative_id = _safe_id(info.get("policySetDefinitionId"))
                 resource_id = _safe_id(info.get("resourceId")) or _safe_id(node.get("target"))
                 log_address = _safe_label(node.get("terraformAddress"))
-                if log_address not in {c.address for c in changes}:
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.\-\[\]\"']{0,255}", log_address or ""):
+                    log_address = None
+                if changes and log_address not in {c.address for c in changes}:
                     log_address = None
                 reference_id = _safe_label(info.get("policyDefinitionReferenceId"))
-                key = (assignment_id, definition_id, reference_id, resource_id, code_key)
+                key = (assignment_id, definition_id, reference_id, resource_id, log_address, code_key)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -299,7 +308,8 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
                 assignment_props = assignment.get("properties", {}) if assignment else {}
                 observations = _extract_observation(info)
                 fix, risk = _known_advice(observations)
-                linked_address = _match_plan(resource_id, changes) or log_address
+                matched_plan = _match_plan(resource_id, changes)
+                linked_address = matched_plan or log_address
                 plan_observations = [
                     {"field": a["field"], "observed_value": a["observed_value"], "signal": a["signal"]}
                     for a in advisories if a["resource"] == linked_address
@@ -316,6 +326,7 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
                     "code": code,
                     "resource_id": resource_id,
                     "terraform_address": linked_address,
+                    "address_evidence": "matched_plan" if matched_plan else "error_log" if log_address else "unavailable",
                     "plan_observations_not_azure_confirmed": plan_observations,
                     "assignment_id": assignment_id,
                     "assignment_name": _safe_label(assignment_props.get("displayName")) if assignment else None,
@@ -327,7 +338,7 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
                     "enforcement_mode": _safe_label(assignment_props.get("enforcementMode")) if assignment else None,
                     "evaluation_evidence": observations,
                     "developer_action": fix,
-                    "central_decision": "Confirm policy intent, sanctioned reference architecture, and whether any narrowly scoped exception can be considered; no automatic policy changes.",
+                    "central_decision": "Check the policy intent, approved deployment options and whether further review is warranted; no automatic policy changes.",
                     "governance_owner": _owner_hint(assignment),
                     "exception_risk": risk,
                     "evidence_source": "Azure denial payload",
@@ -344,18 +355,23 @@ def triage(plan: Any, azure_errors: Any | None = None, assignments: Any | None =
             seen.add(key)
             other_findings.append({"status": "CONFIRMED_AZURE_NON_POLICY_ERROR", "code": code,
                                    "category": category, "resource_id": resource_id,
-                                   "terraform_address": _match_plan(resource_id, changes),
+                                   "terraform_address": _match_plan(resource_id, changes) or (_safe_label(node.get("terraformAddress")) if not changes and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.\-\[\]\"']{0,255}", str(node.get("terraformAddress", ""))) else None),
                                    "owner_to_contact": owner,
-                                   "next_step": "Check the relevant Azure operation details and organization-specific permissions; do not assume Azure Policy is responsible."})
+                                   "next_step": "Check the relevant operation and permission details; do not assume Azure Policy is responsible."})
+            continue
+        if code_key not in {"deploymentfailed", "resourcevalidationfailed", "deploymentdiagnostics", "terraformapplyfailed"} and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,90}", code):
+            unclassified.append({"code": code, "status": "UNCLASSIFIED_ERROR"})
     change_summary = [{"address": c.address, "terraform_type": c.kind, "azure_type": c.azure_type,
                        "actions": list(c.actions), "name": c.proposed_name} for c in changes]
-    return {"schema_version": 1, "tool": "azure-policy-bridge", "source": "terraform_plan_and_optional_azure_denial",
-            "verdict": "CONFIRMED_POLICY_BLOCKERS" if policy_findings else "OTHER_AZURE_BLOCKERS" if other_findings else "UNVERIFIED_NO_DENIAL_EVIDENCE",
+    return {"schema_version": 1, "tool": "azure-policy-bridge", "source": "azure_error" if plan is None else "terraform_plan_and_optional_azure_error",
+            "verdict": "CONFIRMED_POLICY_BLOCKERS" if policy_findings else "OTHER_AZURE_BLOCKERS" if other_findings else "UNCLASSIFIED_AZURE_ERRORS" if unclassified else "UNVERIFIED_NO_DENIAL_EVIDENCE",
             "changes": change_summary,
             "confirmed_policy_denials": policy_findings,
             "other_azure_errors": other_findings,
+            "unclassified_azure_errors": list({e["code"].lower(): e for e in unclassified}.values())[:30],
             "terraform_advisories": advisories,
-            "evidence_gaps": (["No Azure error/deployment evidence supplied: possible Terraform conflicts are not confirmed policy denials."] if azure_errors is None else
-                              ["No policy-denial metadata found; this is not proof that applicable Azure Policies allow deployment."] if not policy_findings else []) +
-                             (["No assignment inventory supplied: cannot resolve central policy names, ownership or scope details."] if policy_findings and assignments is None else []),
+            "evidence_gaps": (["No Azure deployment evidence supplied: any plan signals are advisory only."] if azure_errors is None else
+                              ["No matching Azure Policy denial found in available diagnostics; this does not prove compliance or deployment success."] if not policy_findings else []) +
+                             (["No Terraform plan supplied: resource configuration and changes were not verified."] if plan is None else []) +
+                             (["No assignment inventory supplied: cannot resolve policy names, ownership or scope details."] if policy_findings and assignments is None else []),
             "trust_boundary": "The report does not grant policy exemptions, alter tenant policy, determine enterprise risk acceptance, or prove an Azure deployment would succeed."}
